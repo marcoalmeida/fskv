@@ -7,7 +7,6 @@ use std::time::SystemTime;
 
 const DIRECTORY_TREE_HEIGHT: usize = 3;
 const SINGLE_DIRECTORY_LENGTH: usize = 4;
-const FSKV_MARKER_DIR: &str = ".fskv";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Store {
@@ -36,25 +35,15 @@ impl Store {
         return root;
     }
 
-    pub fn new(root_dir: &'static str) -> Result<Store, Error> {
-        let fskv_marker_path = Path::new(root_dir).join(FSKV_MARKER_DIR);
+    pub fn new(root_dir: &'static str, create: bool) -> Result<Store, Error> {
+        let store = Store {
+            root_directory: root_dir,
+        };
 
-        match fs::metadata(root_dir) {
-            Ok(_) => {
-                // confirm it's an fskv store, i.e., the marker directory exists
-                match fs::metadata(fskv_marker_path) {
-                    Ok(_) => Ok(Store {
-                        root_directory: root_dir,
-                    }),
-                    Err(e) => Err(e),
-                }
-            }
-            Err(_) => {
-                // create a new store
-                fs::create_dir_all(fskv_marker_path).and(Ok(Store {
-                    root_directory: root_dir,
-                }))
-            }
+        if create {
+            fs::create_dir_all(root_dir).and(Ok(store))
+        } else {
+            fs::metadata(root_dir).and(Ok(store))
         }
     }
 
@@ -113,11 +102,10 @@ impl Store {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::vec::Vec;
     use super::*;
+    use std::vec::Vec;
 
     fn teardown(directories: Vec<&str>) {
         for d in directories.iter() {
@@ -128,16 +116,16 @@ mod tests {
     #[test]
     fn test_new() {
         // fail to create (assuming we're not running tests as root)
-        let ds = Store::new("/foo");
+        let ds = Store::new("/foo", true);
         assert_eq!(ds.is_ok(), false);
         // succeed creating a directory in `cwd`
-        let ds = Store::new("fskv_test");
+        let ds = Store::new("fskv_test", true);
         assert_eq!(ds.is_ok(), true);
         // succeed trying to create it a second time
-        let ds = Store::new("fskv_test");
+        let ds = Store::new("fskv_test", true);
         assert_eq!(ds.is_ok(), true);
         // also succeed when using an existing directory
-        let ds = Store::new("fskv_test");
+        let ds = Store::new("fskv_test", false);
         assert_eq!(ds.is_ok(), true);
 
         teardown(vec!["fskv_test"]);
@@ -145,56 +133,12 @@ mod tests {
 
     #[test]
     fn test_put() {
-        let ds = Store::new("fskv_test");
-        print!("{:?}", ds);
+        let ds = Store::new("fskv_test", true);
         assert_eq!(ds.is_ok(), true);
         let ds = ds.unwrap();
         assert_eq!(ds.put("foo", "bar").is_ok(), true);
-        // put is atomic and requires the key not to already exist
+        // put is atomic and requires the key to not exist already
         assert_eq!(ds.put("foo", "bar").is_ok(), false);
-
-        teardown(vec!["fskv_test"]);
-    }
-
-    #[test]
-    fn test_get() {
-        let ds = Store::new("fskv_test");
-        assert_eq!(ds.is_ok(), true);
-        let ds = ds.unwrap();
-        // does not exist, should fail
-        assert_eq!(ds.get("getkey_doesnt_exist").is_ok(), false);
-        // put something and read it back
-        assert_eq!(ds.put("getkey", "foo").is_ok(), true);
-        assert_eq!(ds.get("getkey").is_ok(), true);
-
-        teardown(vec!["fskv_test"]);
-    }
-
-    #[test]
-    fn test_update() {
-        let ds = Store::new("fskv_test");
-        assert_eq!(ds.is_ok(), true);
-        let ds = ds.unwrap();
-        // update
-        assert_eq!(ds.put("update", "yes").is_ok(), true);
-        assert_eq!(ds.update("update", "yes").is_ok(), true);
-        // insert new via update
-        assert_eq!(ds.update("upsert", "yes").is_ok(), true);
-
-        teardown(vec!["fskv_test"]);
-    }
-
-    #[test]
-    fn test_delete() {
-        let ds = Store::new("fskv_test");
-        assert_eq!(ds.is_ok(), true);
-        let ds = ds.unwrap();
-        assert_eq!(ds.put("delkey", "foo").is_ok(), true);
-        assert_eq!(ds.get("delkey").is_ok(), true);
-        assert_eq!(ds.delete("delkey").is_ok(), true);
-        assert_eq!(ds.get("delkey").is_ok(), false);
-        // does not exist, should fail
-        assert_eq!(ds.delete("delkey_does_not_exist").is_ok(), false);
 
         teardown(vec!["fskv_test"]);
     }
